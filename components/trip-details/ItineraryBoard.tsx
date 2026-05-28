@@ -25,7 +25,7 @@ interface Day {
 
 interface ItineraryBoardProps {
   initialDays: Day[]
-  onDataChange: (days: Day[]) => void
+  onDataChange: (days: Day[], isReorder?: boolean) => void
   isGuest?: boolean
   // Optional BE sync callbacks — chi truyen khi user da login
   onActivityAdded?: (dayId: string, activity: Omit<Activity, "id">) => Promise<{ id: string } | null>
@@ -159,9 +159,9 @@ export default function ItineraryBoard({
     setIsMounted(true)
   }, [])
 
-  const update = (newDays: Day[]) => {
+  const update = (newDays: Day[], isReorder = false) => {
     setDays(newDays)
-    onDataChange(newDays)
+    onDataChange(newDays, isReorder)
   }
 
   // ─── Drag & Drop ──────────────────────────────────────────────────────────
@@ -211,7 +211,7 @@ export default function ItineraryBoard({
       }))
     }
 
-    update(newDays)
+    update(newDays, true)
   }
 
   // ─── Them moi ─────────────────────────────────────────────────────────────
@@ -380,7 +380,7 @@ export default function ItineraryBoard({
                                   {...provided.draggableProps}
                                   style={{
                                     ...provided.draggableProps.style,
-                                    transition: snapshot.isDragging ? "none" : provided.draggableProps.style?.transition,
+                                    transition: (snapshot.isDragging && !snapshot.isDropAnimating) ? "none" : provided.draggableProps.style?.transition,
                                   }}
                                 >
                                   {/* Mode sua */}
