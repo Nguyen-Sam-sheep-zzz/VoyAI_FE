@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuthStore } from "@/src/store/authStore";
 import axiosInstance from "@/src/lib/axios";
-import { Loader2, X, Camera, Link as LinkIcon, CheckCircle } from "lucide-react";
+import { Loader2, X, Camera, CheckCircle, Upload } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
@@ -19,6 +19,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (user) {
@@ -30,6 +31,72 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   }, [user, isOpen]);
 
   if (!isOpen || !user) return null;
+
+  const handleAvatarClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Allow up to 5MB file upload because we will compress it down anyway
+    if (file.size > 5 * 1024 * 1024) {
+      setError("Dung lượng ảnh tối đa là 5MB. Vui lòng chọn ảnh khác.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX_WIDTH = 300;
+        const MAX_HEIGHT = 300;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > MAX_WIDTH) {
+            height *= MAX_WIDTH / width;
+            width = MAX_WIDTH;
+          }
+        } else {
+          if (height > MAX_HEIGHT) {
+            width *= MAX_HEIGHT / height;
+            height = MAX_HEIGHT;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          // Compress to JPEG with 0.7 quality to get a very lightweight Base64 string (~10-30KB)
+          const compressedBase64 = canvas.toDataURL("image/jpeg", 0.7);
+          setAvatarUrl(compressedBase64);
+        } else {
+          setError("Không thể xử lý ảnh.");
+        }
+        setLoading(false);
+      };
+      img.onerror = () => {
+        setError("Không thể đọc file ảnh.");
+        setLoading(false);
+      };
+    };
+    reader.onerror = () => {
+      setError("Không thể đọc file ảnh.");
+      setLoading(false);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -86,7 +153,7 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
 
         <div className="text-center mb-6">
           <h3 className="text-2xl font-bold text-gray-800">Thông tin cá nhân</h3>
-          <p className="text-sm text-gray-500 mt-1">Cập nhật họ tên và ảnh đại diện của bạn</p>
+          <p className="text-sm text-gray-500 mt-1">Cập nhật thông tin tài khoản và ảnh đại diện của bạn</p>
         </div>
 
         {error && (
@@ -105,25 +172,53 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
         <form onSubmit={handleSubmit} className="space-y-5">
           {/* Avatar Section */}
           <div className="flex flex-col items-center justify-center gap-3">
-            <div className="relative group w-24 h-24 rounded-full overflow-hidden shadow-md border-2 border-orange-100 bg-gradient-to-br from-amber-100 to-orange-100 flex items-center justify-center">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              onChange={handleFileChange} 
+              accept="image/*" 
+              className="hidden" 
+            />
+            
+            <button
+              type="button"
+              onClick={handleAvatarClick}
+              className="relative group w-24 h-24 rounded-full overflow-hidden shadow-md border-2 border-orange-100 bg-gradient-to-br from-amber-100 to-orange-100 flex items-center justify-center cursor-pointer transition-all hover:border-amber-400 focus:outline-hidden"
+              title="Click để tải ảnh lên"
+            >
               {avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img 
                   src={avatarUrl} 
                   alt="Avatar Preview" 
                   className="w-full h-full object-cover"
+                  onError={(e) => {
+                    // If image fails to load, clear the URL to show initial fallback
+                    (e.target as HTMLImageElement).style.display = 'none';
+                    (e.target as HTMLImageElement).parentElement?.querySelector('.avatar-fallback')?.classList.remove('hidden');
+                  }}
+                  referrerPolicy="no-referrer"
                 />
-              ) : (
-                <div className="w-full h-full bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-white text-3xl font-bold font-sans">
-                  {getInitial()}
-                </div>
-              )}
-              
-              <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-default">
-                <Camera size={20} />
-                <span className="text-[10px] mt-1 font-medium">Ảnh cá nhân</span>
+              ) : null}
+              {/* Fallback initial - shown when no avatar or image fails */}
+              <div className={`w-full h-full bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-white text-3xl font-bold font-sans avatar-fallback ${avatarUrl ? 'hidden' : ''}`}>
+                {getInitial()}
               </div>
-            </div>
+              
+              <div className="absolute inset-0 bg-black/40 flex flex-col items-center justify-center text-white opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                <Camera size={20} />
+                <span className="text-[10px] mt-1 font-medium">Tải ảnh lên</span>
+              </div>
+            </button>
+            
+            <button
+              type="button"
+              onClick={handleAvatarClick}
+              className="text-xs text-amber-600 hover:text-amber-700 font-semibold flex items-center gap-1 hover:underline cursor-pointer"
+            >
+              <Upload size={12} />
+              Chọn ảnh từ máy tính
+            </button>
           </div>
 
           {/* Form Fields */}
@@ -146,20 +241,6 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
                 onChange={(e) => setFullName(e.target.value)} 
                 className="rounded-xl h-11 border-gray-200/80 focus-visible:ring-amber-500/20" 
               />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
-                <LinkIcon size={12} className="text-gray-400" />
-                Đường dẫn ảnh đại diện (URL)
-              </label>
-              <Input 
-                placeholder="Dán liên kết ảnh (ví dụ: https://...)" 
-                value={avatarUrl} 
-                onChange={(e) => setAvatarUrl(e.target.value)} 
-                className="rounded-xl h-11 border-gray-200/80 focus-visible:ring-amber-500/20 text-sm" 
-              />
-              <p className="text-[11px] text-gray-400 mt-1">Dán link ảnh từ Facebook, Google hoặc bất kỳ website nào.</p>
             </div>
           </div>
 

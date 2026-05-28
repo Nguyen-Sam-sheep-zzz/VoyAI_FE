@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect } from "react"
+import { createPortal } from "react-dom"
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd"
 import { Clock, GripVertical, MapPin, Plus, Sparkles, Pencil, Trash2, Check, X } from "lucide-react"
 import { placeService } from "@/src/services/place.service"
@@ -152,6 +153,11 @@ export default function ItineraryBoard({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
+  const [isMounted, setIsMounted] = useState(false)
+
+  useEffect(() => {
+    setIsMounted(true)
+  }, [])
 
   const update = (newDays: Day[]) => {
     setDays(newDays)
@@ -168,15 +174,50 @@ export default function ItineraryBoard({
     const srcIdx = newDays.findIndex(d => d.id === source.droppableId)
     const dstIdx = newDays.findIndex(d => d.id === destination.droppableId)
 
-    const [moved] = newDays[srcIdx].activities.splice(source.index, 1)
-    newDays[dstIdx].activities.splice(destination.index, 0, moved)
+    if (source.droppableId === destination.droppableId) {
+      // Di chuyển trong cùng ngày
+      const day = newDays[srcIdx]
+      // Lấy danh sách giờ được sắp xếp tăng dần
+      const sortedTimes = day.activities.map(a => a.time).sort((a, b) => a.localeCompare(b))
+
+      const [moved] = day.activities.splice(source.index, 1)
+      day.activities.splice(destination.index, 0, moved)
+
+      // Gán lại giờ theo thứ tự mới
+      day.activities = day.activities.map((activity, idx) => ({
+        ...activity,
+        time: sortedTimes[idx] || "08:00"
+      }))
+    } else {
+      // Di chuyển sang ngày khác
+      const srcDay = newDays[srcIdx]
+      const dstDay = newDays[dstIdx]
+
+      const [moved] = srcDay.activities.splice(source.index, 1)
+      dstDay.activities.splice(destination.index, 0, moved)
+
+      // Sắp xếp lại giờ của ngày nhận
+      const sortedDstTimes = dstDay.activities.map(a => a.time).sort((a, b) => a.localeCompare(b))
+      dstDay.activities = dstDay.activities.map((activity, idx) => ({
+        ...activity,
+        time: sortedDstTimes[idx] || "08:00"
+      }))
+
+      // Sắp xếp lại giờ của ngày gửi
+      const sortedSrcTimes = srcDay.activities.map(a => a.time).sort((a, b) => a.localeCompare(b))
+      srcDay.activities = srcDay.activities.map((activity, idx) => ({
+        ...activity,
+        time: sortedSrcTimes[idx] || "08:00"
+      }))
+    }
+
     update(newDays)
   }
 
   // ─── Them moi ─────────────────────────────────────────────────────────────
   const handleAdd = async (dayId: string, data: Partial<Activity>) => {
     const tempId = `local-${Date.now()}`
-    
+
     let lat = 0;
     let lng = 0;
     try {
@@ -227,18 +268,18 @@ export default function ItineraryBoard({
   const handleEdit = async (actId: string, data: Partial<Activity>) => {
     let lat = data.lat;
     let lng = data.lng;
-    
+
     const oldAct = days.flatMap(d => d.activities).find(a => a.id === actId);
     if (oldAct && oldAct.title !== data.title) {
-        try {
-            const results = await placeService.searchPlace(data.title ?? "");
-            if (results && results.length > 0) {
-                lat = Number(results[0].lat);
-                lng = Number(results[0].lon);
-            }
-        } catch (e) {
-            // ignore
+      try {
+        const results = await placeService.searchPlace(data.title ?? "");
+        if (results && results.length > 0) {
+          lat = Number(results[0].lat);
+          lng = Number(results[0].lon);
         }
+      } catch (e) {
+        // ignore
+      }
     }
 
     const newDays = days.map(d => ({
@@ -281,187 +322,204 @@ export default function ItineraryBoard({
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
-      {/* Banner guest */}
-      {isGuest && (
-        <div className="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl flex items-center gap-2 text-xs text-amber-700">
-          <span className="text-base">&#9888;&#65039;</span>
-          <span>Bạn đang xem với tư cách khách. Thay đổi sẽ được lưu tạm, nhưng không lưu trên server.</span>
-        </div>
-      )}
       {/* Loi sync BE */}
       {syncError && (
-        <div className="mb-3 px-4 py-2.5 bg-red-50 border border-red-200 rounded-xl flex items-center justify-between gap-2 text-xs text-red-700">
-          <span>&#9888; {syncError}</span>
-          <button onClick={() => setSyncError(null)} className="text-red-400 hover:text-red-600">&times;</button>
+        <div className="mb-4 px-4 py-3 bg-red-50/80 backdrop-blur-md border border-red-200/80 rounded-2xl flex items-center justify-between gap-2.5 text-xs text-red-700 shadow-sm transition-all duration-200">
+          <span className="font-medium">⚠️ {syncError}</span>
+          <button onClick={() => setSyncError(null)} className="text-red-400 hover:text-red-600 font-bold text-sm">&times;</button>
         </div>
       )}
 
-      <div className="flex flex-col xl:flex-row gap-4 overflow-x-auto pb-6 pt-2 items-start custom-scrollbar print:flex-col print:overflow-visible print:gap-6">
-        {days.map((day, dayIndex) => {
-          const colorTheme = DAY_COLORS[dayIndex % DAY_COLORS.length]
-          const isAddingToThisDay = editingId === `new-${day.id}`
+      {/* Travel Grid & Soft Gradient Background Wrapper */}
+      <div className="relative rounded-3xl p-5 md:p-6 bg-gradient-to-br from-orange-50/50 via-amber-50/20 to-white border border-orange-100/40 shadow-xs overflow-hidden min-h-[500px]">
+        {/* Subtle grid decoration */}
+        <div className="absolute inset-0 bg-[radial-gradient(#fed7aa_1.2px,transparent_1.2px)] [background-size:20px_20px] opacity-40 pointer-events-none" />
 
-          return (
-            <div key={day.id} className="min-w-[300px] w-full xl:w-[300px] shrink-0 bg-slate-50 rounded-[1.5rem] p-3 border border-gray-100 shadow-[0_4px_20px_rgb(0,0,0,0.03)] flex flex-col print:w-full print:bg-white print:border-gray-200 print:shadow-none print:break-inside-avoid">
+        <div className="relative flex flex-col xl:flex-row gap-5 overflow-x-auto pb-6 pt-2 items-start custom-scrollbar print:flex-col print:overflow-visible print:gap-6">
+          {days.map((day, dayIndex) => {
+            const colorTheme = DAY_COLORS[dayIndex % DAY_COLORS.length]
+            const isAddingToThisDay = editingId === `new-${day.id}`
 
-              {/* Header cot ngay */}
-              <div className={`flex items-center justify-between px-3 py-2.5 rounded-xl mb-3 ${colorTheme.header}`}>
-                <h3 className="text-base font-bold flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 opacity-70" />
-                  {day.title}
-                  {day.date && (
-                    <span className="text-xs font-medium opacity-70">
-                      {new Date(day.date).toLocaleDateString("vi-VN", { day: "numeric", month: "numeric" })}
-                    </span>
-                  )}
-                </h3>
-                <span className="text-xs font-semibold bg-white/40 px-2 py-0.5 rounded-md">
-                  {day.activities.length} điểm
-                </span>
-              </div>
+            return (
+              <div
+                key={day.id}
+                className="min-w-[310px] w-full xl:w-[310px] shrink-0 bg-white/75 backdrop-blur-md rounded-[2rem] p-4 border border-white/60 shadow-[0_8px_30px_rgb(0,0,0,0.015)] flex flex-col hover:shadow-[0_12px_40px_rgba(249,115,22,0.04)] transition-[box-shadow,background-color] duration-300 print:w-full print:bg-white print:border-gray-200 print:shadow-none print:break-inside-avoid"
+              >
 
-              {/* Droppable area */}
-              <Droppable droppableId={day.id}>
-                {(provided, snapshot) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className={`flex-1 min-h-[80px] transition-all rounded-2xl ${snapshot.isDraggingOver ? "bg-gray-50/80 ring-1 ring-inset ring-gray-200" : ""}`}
-                  >
-                    <div className="flex flex-col gap-2.5">
-                      {day.activities.map((activity, index) => (
-                        <Draggable key={activity.id} draggableId={activity.id} index={index} isDragDisabled={editingId === activity.id}>
-                          {(provided, snapshot) => (
-                            <div
-                              ref={provided.innerRef}
-                              {...provided.draggableProps}
-                            >
-                              {/* Mode sua */}
-                              {editingId === activity.id ? (
-                                <div {...provided.dragHandleProps}>
-                                  <ActivityEditForm
-                                    activity={activity}
-                                    colorTheme={colorTheme}
-                                    onSave={data => handleEdit(activity.id, data)}
-                                    onCancel={() => setEditingId(null)}
-                                  />
-                                </div>
-                              ) : (
+                {/* Header cot ngay */}
+                <div className={`flex items-center justify-between px-3 py-2.5 rounded-xl mb-3.5 ${colorTheme.header}`}>
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 opacity-70" />
+                    {day.title}
+                    {day.date && (
+                      <span className="text-xs font-medium opacity-70">
+                        {new Date(day.date).toLocaleDateString("vi-VN", { day: "numeric", month: "numeric" })}
+                      </span>
+                    )}
+                  </h3>
+                  <span className="text-xs font-semibold bg-white/40 px-2 py-0.5 rounded-md">
+                    {day.activities.length} điểm
+                  </span>
+                </div>
+
+                {/* Droppable area */}
+                <Droppable droppableId={day.id}>
+                  {(provided, snapshot) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      className={`flex-1 min-h-[100px] transition-[background-color,border-color] duration-200 rounded-2xl ${snapshot.isDraggingOver ? "bg-orange-50/20 ring-1 ring-inset ring-orange-200/50" : ""}`}
+                    >
+                      <div className="flex flex-col gap-3">
+                        {day.activities.map((activity, index) => (
+                          <Draggable key={activity.id} draggableId={activity.id} index={index} isDragDisabled={editingId === activity.id}>
+                            {(provided, snapshot) => {
+                              const cardContent = (
                                 <div
-                                  className={`bg-white rounded-xl p-3.5 border ${
-                                    snapshot.isDragging
-                                      ? "shadow-xl border-orange-300 ring-2 ring-orange-100 z-50"
-                                      : `shadow-sm hover:shadow-md border-gray-100 hover:${colorTheme.border}`
-                                  } transition-shadow group relative overflow-hidden`}
+                                  ref={provided.innerRef}
+                                  {...provided.draggableProps}
+                                  style={{
+                                    ...provided.draggableProps.style,
+                                    transition: snapshot.isDragging ? "none" : provided.draggableProps.style?.transition,
+                                  }}
                                 >
-                                  {/* Dai mau trang tri ben trai */}
-                                  <div className={`absolute top-0 left-0 w-1 h-full opacity-0 group-hover:opacity-100 transition-opacity ${colorTheme.accentBg}`} />
-
-                                  <div className="flex gap-3">
-                                    {/* Handle keo tha */}
-                                    <div
-                                      {...provided.dragHandleProps}
-                                      className="mt-1 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 transition-colors shrink-0 print:hidden"
-                                    >
-                                      <GripVertical className="w-5 h-5" />
+                                  {/* Mode sua */}
+                                  {editingId === activity.id ? (
+                                    <div {...provided.dragHandleProps}>
+                                      <ActivityEditForm
+                                        activity={activity}
+                                        colorTheme={colorTheme}
+                                        onSave={data => handleEdit(activity.id, data)}
+                                        onCancel={() => setEditingId(null)}
+                                      />
                                     </div>
+                                  ) : (
+                                    <div
+                                      className={`bg-white/95 rounded-2xl p-4 border ${snapshot.isDragging
+                                          ? "shadow-2xl border-orange-300 ring-4 ring-orange-500/10 z-[9999] scale-[1.02]"
+                                          : `shadow-xs hover:shadow-md border-gray-100 hover:${colorTheme.border} hover:scale-[1.01] transition-[border-color,box-shadow,transform] duration-200`
+                                        } group relative overflow-hidden`}
+                                      style={{
+                                        width: snapshot.isDragging ? "278px" : "auto",
+                                        maxWidth: "100%",
+                                      }}
+                                    >
+                                      {/* Dai mau trang tri ben trai */}
+                                      <div className={`absolute top-0 left-0 w-1 h-full opacity-0 group-hover:opacity-100 transition-opacity ${colorTheme.accentBg}`} />
 
-                                    <div className="flex-1 min-w-0">
-                                      <div className="flex items-center justify-between mb-2">
-                                        <span className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-md ${colorTheme.badge}`}>
-                                          <Clock className="w-3.5 h-3.5" />
-                                          {activity.time}
-                                        </span>
-                                        {/* Action buttons - hien khi hover */}
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 bg-white/80 backdrop-blur-sm pl-2 print:hidden">
-                                          {activity.cost > 0 && (
-                                            <span className="text-xs font-semibold text-gray-500 bg-gray-50 px-2 py-1 rounded-md mr-1">
-                                              -{activity.cost.toLocaleString("vi-VN")}đ
+                                      <div className="flex gap-3">
+                                        {/* Handle keo tha */}
+                                        <div
+                                          {...provided.dragHandleProps}
+                                          className="mt-1 cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 transition-colors shrink-0 print:hidden"
+                                        >
+                                          <GripVertical className="w-5 h-5" />
+                                        </div>
+
+                                        <div className="flex-1 min-w-0">
+                                          <div className="flex items-center justify-between mb-2">
+                                            <span className={`flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded-md ${colorTheme.badge}`}>
+                                              <Clock className="w-3.5 h-3.5" />
+                                              {activity.time}
                                             </span>
-                                          )}
-                                          <button
-                                            onClick={() => setEditingId(activity.id)}
-                                            title="Chỉnh sửa"
-                                            className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
-                                          >
-                                            <Pencil className="w-3.5 h-3.5" />
-                                          </button>
-                                          {confirmDeleteId === activity.id ? (
-                                            <div className="flex items-center gap-1 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
-                                              <span className="text-[10px] text-red-600 font-medium">Xoá?</span>
+                                            {/* Action buttons - hien khi hover */}
+                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 bg-white/80 backdrop-blur-sm pl-2 print:hidden">
+                                              {activity.cost > 0 && (
+                                                <span className="text-xs font-semibold text-gray-500 bg-gray-50 px-2 py-1 rounded-md mr-1">
+                                                  -{activity.cost.toLocaleString("vi-VN")}đ
+                                                </span>
+                                              )}
                                               <button
-                                                onClick={() => handleDelete(activity.id)}
-                                                className="p-0.5 text-red-600 hover:text-red-700"
+                                                onClick={() => setEditingId(activity.id)}
+                                                title="Chỉnh sửa"
+                                                className="p-1.5 rounded-lg hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors cursor-pointer"
                                               >
-                                                <Check className="w-3.5 h-3.5" />
+                                                <Pencil className="w-3.5 h-3.5" />
                                               </button>
-                                              <button
-                                                onClick={() => setConfirmDeleteId(null)}
-                                                className="p-0.5 text-gray-400 hover:text-gray-600"
-                                              >
-                                                <X className="w-3.5 h-3.5" />
-                                              </button>
+                                              {confirmDeleteId === activity.id ? (
+                                                <div className="flex items-center gap-1 bg-red-50 border border-red-200 rounded-lg px-2 py-1">
+                                                  <span className="text-[10px] text-red-600 font-medium">Xoá?</span>
+                                                  <button
+                                                    onClick={() => handleDelete(activity.id)}
+                                                    className="p-0.5 text-red-600 hover:text-red-700"
+                                                  >
+                                                    <Check className="w-3.5 h-3.5" />
+                                                  </button>
+                                                  <button
+                                                    onClick={() => setConfirmDeleteId(null)}
+                                                    className="p-0.5 text-gray-400 hover:text-gray-600"
+                                                  >
+                                                    <X className="w-3.5 h-3.5" />
+                                                  </button>
+                                                </div>
+                                              ) : (
+                                                <button
+                                                  onClick={() => setConfirmDeleteId(activity.id)}
+                                                  title="Xóa hoạt động"
+                                                  className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
+                                                >
+                                                  <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                              )}
                                             </div>
-                                          ) : (
-                                            <button
-                                              onClick={() => setConfirmDeleteId(activity.id)}
-                                              title="Xóa hoạt động"
-                                              className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-colors"
-                                            >
-                                              <Trash2 className="w-3.5 h-3.5" />
-                                            </button>
+                                          </div>
+
+                                          <h4 className="font-semibold text-gray-800 text-sm truncate flex items-center gap-1.5">
+                                            <MapPin className={`w-4 h-4 shrink-0 ${colorTheme.dot}`} />
+                                            {activity.title}
+                                          </h4>
+                                          {activity.description && (
+                                            <p className="text-xs text-gray-500 mt-1.5 line-clamp-2 leading-relaxed">
+                                              {activity.description}
+                                            </p>
                                           )}
                                         </div>
                                       </div>
-
-                                      <h4 className="font-semibold text-gray-800 text-sm truncate flex items-center gap-1.5">
-                                        <MapPin className={`w-4 h-4 shrink-0 ${colorTheme.dot}`} />
-                                        {activity.title}
-                                      </h4>
-                                      {activity.description && (
-                                        <p className="text-xs text-gray-500 mt-1.5 line-clamp-2 leading-relaxed">
-                                          {activity.description}
-                                        </p>
-                                      )}
                                     </div>
-                                  </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
-                      {provided.placeholder}
-                    </div>
-                  </div>
-                )}
-              </Droppable>
+                              );
 
-              {/* Them dia diem inline */}
-              <div className="mt-3">
-                {isAddingToThisDay ? (
-                  <ActivityEditForm
-                    activity={{}}
-                    colorTheme={colorTheme}
-                    onSave={data => handleAdd(day.id, data)}
-                    onCancel={() => setEditingId(null)}
-                  />
-                ) : (
-                  <button
-                    onClick={() => { setEditingId(`new-${day.id}`); setConfirmDeleteId(null) }}
-                    className="w-full py-2.5 border border-dashed border-gray-200 hover:border-orange-300 hover:bg-orange-50/50 rounded-xl flex items-center justify-center gap-2 text-gray-500 hover:text-orange-600 text-sm font-semibold transition-all group print:hidden"
-                  >
-                    <Plus className="w-4 h-4 group-hover:scale-125 transition-transform" />
-                    Thêm địa điểm
-                  </button>
-                )}
+                              if (snapshot.isDragging && isMounted && typeof window !== "undefined") {
+                                return createPortal(cardContent, document.body);
+                              }
+                              return cardContent;
+                            }}
+                          </Draggable>
+                        ))}
+                        {provided.placeholder}
+                      </div>
+                    </div>
+                  )}
+                </Droppable>
+
+                {/* Them dia diem inline */}
+                <div className="mt-3.5">
+                  {isAddingToThisDay ? (
+                    <ActivityEditForm
+                      activity={{}}
+                      colorTheme={colorTheme}
+                      onSave={data => handleAdd(day.id, data)}
+                      onCancel={() => setEditingId(null)}
+                    />
+                  ) : (
+                    <button
+                      onClick={() => { setEditingId(`new-${day.id}`); setConfirmDeleteId(null) }}
+                      className="w-full py-2.5 border border-dashed border-gray-200 hover:border-orange-300 hover:bg-orange-50/30 rounded-xl flex items-center justify-center gap-2 text-gray-500 hover:text-orange-600 text-sm font-semibold transition-all group print:hidden cursor-pointer"
+                    >
+                      <Plus className="w-4 h-4 group-hover:scale-125 transition-transform" />
+                      Thêm địa điểm
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
 
-      <style dangerouslySetInnerHTML={{__html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .custom-scrollbar::-webkit-scrollbar { height: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }

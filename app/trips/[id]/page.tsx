@@ -139,13 +139,29 @@ export default function TripDetailsPage() {
     })
 
     const hasToken = typeof window !== "undefined" && Boolean(window.localStorage.getItem("accessToken"))
+    const sessionId = typeof window !== "undefined" ? window.localStorage.getItem("sessionId") : null
+
     if (hasToken) {
       setIsRecalculating(true)
-      const allActivityIds = newDays
+      const reorderData = newDays
         .flatMap(d => d.activities)
-        .map(a => Number(a.id))
-      activityService.reorderActivities({ activityIds: allActivityIds })
+        .map(a => ({
+          id: Number(a.id),
+          startTime: a.time.length === 5 ? `${a.time}:00` : a.time
+        }))
+      activityService.reorderActivities({ activities: reorderData })
         .catch(err => console.warn("Reorder API error:", err))
+        .finally(() => setIsRecalculating(false))
+    } else if (sessionId) {
+      setIsRecalculating(true)
+      const reorderData = newDays
+        .flatMap(d => d.activities)
+        .map(a => ({
+          id: Number(a.id),
+          startTime: a.time.length === 5 ? `${a.time}:00` : a.time
+        }))
+      activityService.reorderActivitiesAsGuest({ activities: reorderData }, sessionId)
+        .catch(err => console.warn("Guest Reorder API error:", err))
         .finally(() => setIsRecalculating(false))
     }
   }, [])
@@ -238,7 +254,7 @@ export default function TripDetailsPage() {
                 initialDays={tripData.days}
                 onDataChange={handleItineraryChange}
                 isGuest={tripData.isGuest}
-                {...(hasToken && !tripData.isGuest ? {
+                {...(hasToken ? {
                   onActivityAdded: handleActivityAdded,
                   onActivityEdited: handleActivityEdited,
                   onActivityDeleted: handleActivityDeleted,

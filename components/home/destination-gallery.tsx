@@ -66,13 +66,13 @@ export default function DestinationGallery() {
           {destinations.map((destination) => (
             <div
               key={destination.id}
-              className="group cursor-pointer overflow-hidden rounded-xl shadow-md hover:shadow-xl transition-all duration-300 transform hover:scale-105"
+              className="group cursor-pointer overflow-hidden rounded-xl shadow-md hover:shadow-xl transition-all duration-300 hover:-translate-y-1.5 will-change-transform"
             >
               <div className="relative overflow-hidden h-48 bg-gray-200">
                 <img
                   src={destination.image || "/placeholder.svg"}
                   alt={destination.name}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500 ease-out"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4">
                   <p className="text-sm text-white font-medium">{destination.description}</p>
