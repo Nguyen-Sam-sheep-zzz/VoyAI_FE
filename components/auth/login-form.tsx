@@ -32,6 +32,26 @@ export function LoginForm({ setIsLogin, onSuccess }: LoginFormProps) {
         { userId: res.data.userId, email: res.data.email, fullName: res.data.fullName, avatarUrl: res.data.avatarUrl },
         res.data.accessToken
       );
+
+      // Claim guest trips if any
+      const sessionId = typeof window !== "undefined" ? localStorage.getItem("sessionId") : null;
+      if (sessionId) {
+        try {
+          await axiosInstance.post(
+            "/auth/claim-trips",
+            {},
+            {
+              headers: {
+                "X-Session-Id": sessionId,
+              },
+            }
+          );
+          localStorage.removeItem("sessionId");
+        } catch (claimErr) {
+          console.warn("Failed to claim guest trips:", claimErr);
+        }
+      }
+
       onSuccess();
     } catch (err: any) {
       setError(err.response?.data?.message || "Có lỗi xảy ra, vui lòng thử lại.");
@@ -49,6 +69,26 @@ export function LoginForm({ setIsLogin, onSuccess }: LoginFormProps) {
         { userId: res.data.userId, email: res.data.email, fullName: res.data.fullName, avatarUrl: res.data.avatarUrl },
         res.data.accessToken
       );
+
+      // Claim guest trips if any
+      const sessionId = typeof window !== "undefined" ? localStorage.getItem("sessionId") : null;
+      if (sessionId) {
+        try {
+          await axiosInstance.post(
+            "/auth/claim-trips",
+            {},
+            {
+              headers: {
+                "X-Session-Id": sessionId,
+              },
+            }
+          );
+          localStorage.removeItem("sessionId");
+        } catch (claimErr) {
+          console.warn("Failed to claim guest trips:", claimErr);
+        }
+      }
+
       onSuccess();
     } catch (err: any) {
       setError(err.response?.data?.message || "Lỗi đăng nhập Google");

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo, useEffect, useCallback } from "react"
+import { useState, useMemo, useEffect, useCallback, useRef } from "react"
 import { useParams } from "next/navigation"
 import dynamic from "next/dynamic"
 import Header from "@/components/home/header"
@@ -129,7 +129,17 @@ export default function TripDetailsPage() {
     fetchTrip()
   }, [fetchTrip])
 
-  const handleItineraryChange = useCallback((newDays: FeTripDay[]) => {
+  const reorderTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (reorderTimeoutRef.current) {
+        clearTimeout(reorderTimeoutRef.current)
+      }
+    }
+  }, [])
+
+  const handleItineraryChange = useCallback((newDays: FeTripDay[], isReorder?: boolean) => {
     setTripData(prev => {
       if (!prev) return prev
       const newCurrentBudget = newDays
@@ -138,16 +148,38 @@ export default function TripDetailsPage() {
       return { ...prev, days: newDays, currentBudget: newCurrentBudget }
     })
 
+    if (!isReorder) return
+
     const hasToken = typeof window !== "undefined" && Boolean(window.localStorage.getItem("accessToken"))
-    if (hasToken) {
-      setIsRecalculating(true)
-      const allActivityIds = newDays
+    const sessionId = typeof window !== "undefined" ? window.localStorage.getItem("sessionId") : null
+
+    if (reorderTimeoutRef.current) {
+      clearTimeout(reorderTimeoutRef.current)
+    }
+
+    reorderTimeoutRef.current = setTimeout(() => {
+      const reorderActivities = newDays
         .flatMap(d => d.activities)
-        .map(a => Number(a.id))
-      activityService.reorderActivities({ activityIds: allActivityIds })
+        .filter(a => !a.id.startsWith("local-"))
+        .map(a => ({
+          id: Number(a.id),
+          startTime: a.time.length === 5 ? `${a.time}:00` : a.time
+        }))
+
+      if (reorderActivities.length === 0) return
+
+      setIsRecalculating(true)
+
+      const syncPromise = hasToken
+        ? activityService.reorderActivities({ activities: reorderActivities })
+        : sessionId
+          ? activityService.reorderActivitiesAsGuest({ activities: reorderActivities }, sessionId)
+          : Promise.reject(new Error("No credentials found"))
+
+      syncPromise
         .catch(err => console.warn("Reorder API error:", err))
         .finally(() => setIsRecalculating(false))
-    }
+    }, 1200)
   }, [])
 
   // CRUD callbacks — chi goi BE khi user da login
@@ -238,7 +270,7 @@ export default function TripDetailsPage() {
                 initialDays={tripData.days}
                 onDataChange={handleItineraryChange}
                 isGuest={tripData.isGuest}
-                {...(hasToken && !tripData.isGuest ? {
+                {...(hasToken ? {
                   onActivityAdded: handleActivityAdded,
                   onActivityEdited: handleActivityEdited,
                   onActivityDeleted: handleActivityDeleted,

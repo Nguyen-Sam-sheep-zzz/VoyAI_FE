@@ -140,6 +140,7 @@ export interface AuthResponse {
   userId: JavaLong;
   email: string;
   fullName: string;
+  avatarUrl?: string;
 }
 
 export interface LoginRequest {
@@ -186,8 +187,13 @@ export interface UserContributionRequest {
   costUsd: JavaBigDecimal;
 }
 
+export interface ActivityOrderUpdate {
+  id: JavaLong;
+  startTime?: string;
+}
+
 export interface ReorderRequest {
-  activityIds: JavaLong[];
+  activities: ActivityOrderUpdate[];
 }
 
 export interface ActivityUpdateRequest {
@@ -353,6 +359,7 @@ export interface CurrentUserResponse {
   userId: JavaLong;
   email: string;
   fullName: string;
+  avatarUrl?: string;
 }
 
 export interface ClaimTripsResponse {

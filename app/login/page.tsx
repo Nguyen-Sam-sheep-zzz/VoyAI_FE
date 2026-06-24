@@ -14,7 +14,10 @@ export default function AuthPage() {
   const router = useRouter();
 
   const handleSuccess = () => {
-    router.push("/");
+    const redirect = typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("redirect") || "/"
+      : "/";
+    router.push(redirect);
   };
 
   return (
